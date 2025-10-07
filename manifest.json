@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Prompt Optimizer",
+  "version": "1.0.0",
+  "description": "Automatically optimize your prompts while typing in ChatGPT",
+  "permissions": [
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://*.chatgpt.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://*.chatgpt.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Prompt Optimizer"
+  }
+}

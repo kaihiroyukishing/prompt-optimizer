@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 300px;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    
+    .title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+      margin: 0 0 8px 0;
+    }
+    
+    .subtitle {
+      font-size: 14px;
+      color: #666;
+      margin: 0;
+    }
+    
+    .instructions {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    
+    .instructions h3 {
+      margin: 0 0 12px 0;
+      font-size: 14px;
+      color: #333;
+    }
+    
+    .instructions p {
+      margin: 0 0 8px 0;
+      font-size: 13px;
+      color: #666;
+      line-height: 1.4;
+    }
+    
+    .instructions p:last-child {
+      margin-bottom: 0;
+    }
+    
+    .status {
+      text-align: center;
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    
+    .status.active {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    
+    .status.inactive {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    
+    .shortcut {
+      background: #e5e7eb;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 class="title">Prompt Optimizer</h1>
+    <p class="subtitle">Optimize your ChatGPT prompts instantly</p>
+  </div>
+  
+  <div class="instructions">
+    <h3>How to use:</h3>
+    <p>1. Type your prompt in ChatGPT</p>
+    <p>2. Press <span class="shortcut">Option + O</span> (Mac) or <span class="shortcut">Alt + O</span> (Windows/Linux) to optimize</p>
+    <p>3. Press <span class="shortcut">Option + J</span> (Mac) or <span class="shortcut">Alt + J</span> (Windows/Linux) to create JSON prompt</p>
+    <p>4. Your prompt will be automatically replaced</p>
+  </div>
+  
+  <div class="status" id="status">
+    <span id="statusText">Ready to optimize prompts</span>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
