@@ -9,15 +9,15 @@
 async function optimizePrompt(prompt) {
   // Simulate API delay
   await new Promise(resolve => setTimeout(resolve, 500));
-  
+
   // For now, just append "[Optimized]" to demonstrate functionality
   // This is where you would integrate with your preferred LLM API
-  
+
   const optimizedPrompt = prompt.trim() + " [Optimized]";
-  
+
   // You can replace this with actual optimization logic:
   // return await callOptimizationAPI(prompt);
-  
+
   return optimizedPrompt;
 }
 
@@ -29,7 +29,7 @@ async function optimizePrompt(prompt) {
 async function callOptimizationAPI(prompt) {
   const API_KEY = 'your-api-key-here';
   const API_URL = 'https://api.openai.com/v1/chat/completions';
-  
+
   try {
     const response = await fetch(API_URL, {
       method: 'POST',
@@ -53,11 +53,11 @@ async function callOptimizationAPI(prompt) {
         temperature: 0.7
       })
     });
-    
+
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status}`);
     }
-    
+
     const data = await response.json();
     return data.choices[0].message.content;
   } catch (error) {

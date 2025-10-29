@@ -10,14 +10,14 @@ function addTestIndicator() {
   // Remove any existing indicator
   const existing = document.querySelector('#prompt-optimizer-test');
   if (existing) existing.remove();
-  
+
   const testDiv = document.createElement('div');
   testDiv.id = 'prompt-optimizer-test';
   testDiv.innerHTML = '🚀 Prompt Optimizer Loaded!';
   testDiv.style.cssText = 'position: fixed; top: 10px; left: 10px; background: red; color: white; padding: 10px; z-index: 999999; font-size: 14px; border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.3);';
   document.body.appendChild(testDiv);
   console.log('🚀 PROMPT OPTIMIZER: Test indicator added!');
-  
+
   // Auto-remove after 5 seconds
   setTimeout(() => {
     if (testDiv.parentNode) {
@@ -41,7 +41,7 @@ function tryAddIndicator() {
 if (!tryAddIndicator()) {
   // Wait for DOM ready
   document.addEventListener('DOMContentLoaded', tryAddIndicator);
-  
+
   // Also try after a delay
   setTimeout(() => {
     if (!document.querySelector('#prompt-optimizer-test')) {
@@ -72,17 +72,17 @@ function initialize() {
     console.log('Already initialized, skipping');
     return;
   }
-  
+
   console.log('Prompt Optimizer content script loaded');
   console.log('Current URL:', window.location.href);
-  
+
   // Mark as initialized
   window.promptOptimizerInitialized = true;
-  
+
   // Listen for keyboard shortcuts
   document.addEventListener('keydown', handleKeyDown);
   console.log('Keyboard listener added');
-  
+
   // Listen for messages from background script
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('Message received:', request);
@@ -95,7 +95,7 @@ function initialize() {
 
 function handleKeyDown(event) {
   console.log('Key pressed:', event.key, 'Alt key:', event.altKey, 'Option key:', event.altKey);
-  
+
   // Check for Alt+O (Windows/Linux) or Option+O (Mac) combination
   // On Mac, Option+O produces 'ø' or 'Ø', not 'o'
   if (event.altKey && (event.key === 'o' || event.key === 'O' || event.key === 'ø' || event.key === 'Ø')) {
@@ -103,7 +103,7 @@ function handleKeyDown(event) {
     event.preventDefault();
     optimizeCurrentPrompt();
   }
-  
+
   // Check for Alt+J (Windows/Linux) or Option+J (Mac) combination
   // On Mac, Option+J produces '∆' or 'J'
   if (event.altKey && (event.key === 'j' || event.key === 'J' || event.key === '∆')) {
@@ -115,16 +115,16 @@ function handleKeyDown(event) {
 
 function optimizeCurrentPrompt() {
   const textarea = findPromptTextarea();
-  
+
   if (!textarea) {
     console.log('No prompt textarea found');
     showNotification('No prompt found to optimize', 'error');
     return;
   }
-  
+
   // Get text from textarea or contenteditable div
   let originalPrompt = '';
-  
+
   try {
     if (textarea.tagName === 'TEXTAREA') {
       originalPrompt = textarea.value || '';
@@ -136,21 +136,21 @@ function optimizeCurrentPrompt() {
     console.error('Error getting text from element:', error);
     originalPrompt = '';
   }
-  
+
   // Ensure originalPrompt is a string
   originalPrompt = String(originalPrompt || '');
-  
+
   if (!originalPrompt.trim()) {
     console.log('Empty prompt');
     showNotification('No text to optimize', 'warning');
     return;
   }
-  
+
   console.log('Optimizing prompt:', originalPrompt);
-  
+
   // Show loading state
   showNotification('Optimizing prompt...', 'info');
-  
+
   // Optimize the prompt
   optimizePrompt(originalPrompt)
     .then(optimizedPrompt => {
@@ -168,10 +168,10 @@ function optimizeCurrentPrompt() {
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
         textarea.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      
+
       // Focus back to textarea
       textarea.focus();
-      
+
       showNotification('Prompt optimized successfully!', 'success');
       console.log('Optimized prompt:', optimizedPrompt);
     })
@@ -183,7 +183,7 @@ function optimizeCurrentPrompt() {
 
 function findPromptTextarea() {
   console.log('🔍 PROMPT OPTIMIZER: Looking for textarea...');
-  
+
   // Try multiple selectors to find the ChatGPT prompt textarea
   const selectors = [
     'textarea[placeholder*="Message"]',
@@ -196,11 +196,11 @@ function findPromptTextarea() {
     'div[contenteditable="true"]',
     'textarea'
   ];
-  
+
   for (const selector of selectors) {
     const elements = document.querySelectorAll(selector);
     console.log(`🔍 PROMPT OPTIMIZER: Found ${elements.length} elements for selector: ${selector}`);
-    
+
     for (const element of elements) {
       if (element && element.offsetParent !== null) { // Check if visible
         console.log('🔍 PROMPT OPTIMIZER: Found visible textarea:', element);
@@ -209,7 +209,7 @@ function findPromptTextarea() {
       }
     }
   }
-  
+
   console.log('🔍 PROMPT OPTIMIZER: No textarea found');
   return null;
 }
@@ -220,12 +220,12 @@ function showNotification(message, type = 'info') {
   if (existing) {
     existing.remove();
   }
-  
+
   // Create notification element
   const notification = document.createElement('div');
   notification.className = 'prompt-optimizer-notification';
   notification.textContent = message;
-  
+
   // Style the notification
   Object.assign(notification.style, {
     position: 'fixed',
@@ -240,13 +240,13 @@ function showNotification(message, type = 'info') {
     maxWidth: '300px',
     boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
     transition: 'all 0.3s ease',
-    backgroundColor: type === 'error' ? '#ef4444' : 
-                    type === 'warning' ? '#f59e0b' : 
+    backgroundColor: type === 'error' ? '#ef4444' :
+                    type === 'warning' ? '#f59e0b' :
                     type === 'success' ? '#10b981' : '#3b82f6'
   });
-  
+
   document.body.appendChild(notification);
-  
+
   // Auto-remove after 3 seconds
   setTimeout(() => {
     if (notification.parentNode) {
@@ -293,7 +293,7 @@ Remember: You are optimizing the prompt, not answering it!`;
     return result;
   } catch (error) {
     console.error('🚀 PROMPT OPTIMIZER: Groq API failed, trying fallback:', error);
-    
+
     // Fallback to local optimization if API fails
     console.log('🚀 PROMPT OPTIMIZER: Using local optimization fallback');
     return await localOptimization(prompt);
@@ -306,10 +306,10 @@ Remember: You are optimizing the prompt, not answering it!`;
 async function callGroqAPI(prompt, systemPrompt) {
   const API_KEY = 'YOUR_GROQ_API_KEY_HERE'; // Replace with your Groq API key
   const API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-  
+
   console.log('🚀 PROMPT OPTIMIZER: Making API request to Groq...');
   console.log('🚀 PROMPT OPTIMIZER: API Key length:', API_KEY.length);
-  
+
   const response = await fetch(API_URL, {
     method: 'POST',
     headers: {
@@ -328,42 +328,42 @@ async function callGroqAPI(prompt, systemPrompt) {
       stop: ["User prompt:", "Optimized:", "Remember:"]
     })
   });
-  
+
   console.log('🚀 PROMPT OPTIMIZER: API response status:', response.status);
-  
+
   if (!response.ok) {
     const errorText = await response.text();
     console.error('🚀 PROMPT OPTIMIZER: API error response:', errorText);
     throw new Error(`Groq API request failed: ${response.status} - ${errorText}`);
   }
-  
+
   const data = await response.json();
   console.log('🚀 PROMPT OPTIMIZER: API response data:', data);
-  
+
   let optimizedPrompt = data.choices[0].message.content.trim();
-  
+
   // Clean up the response to ensure it's just the optimized prompt
   // Remove any meta-commentary or explanations
   const lines = optimizedPrompt.split('\n');
   const cleanedLines = lines.filter(line => {
     const trimmed = line.trim();
-    return !trimmed.startsWith('User prompt:') && 
-           !trimmed.startsWith('Optimized:') && 
+    return !trimmed.startsWith('User prompt:') &&
+           !trimmed.startsWith('Optimized:') &&
            !trimmed.startsWith('Remember:') &&
            !trimmed.startsWith('Here') &&
            !trimmed.startsWith('The optimized') &&
            trimmed.length > 0;
   });
-  
+
   optimizedPrompt = cleanedLines.join('\n').trim();
-  
+
   // If the response seems to be answering the prompt instead of optimizing it,
   // fall back to local optimization
   if (optimizedPrompt.length < 10 || optimizedPrompt.includes('I can help') || optimizedPrompt.includes('I\'ll help')) {
     console.log('🚀 PROMPT OPTIMIZER: Response seems to be answering instead of optimizing, using fallback');
     return await localOptimization(prompt);
   }
-  
+
   return optimizedPrompt;
 }
 
@@ -373,26 +373,26 @@ async function callGroqAPI(prompt, systemPrompt) {
 async function localOptimization(prompt) {
   // Simulate processing time
   await new Promise(resolve => setTimeout(resolve, 500));
-  
+
   // Simple local optimization rules
   let optimized = prompt.trim();
-  
+
   // Add structure if missing
   if (!optimized.includes('Please') && !optimized.includes('Can you') && !optimized.includes('I need')) {
     optimized = `Please ${optimized.toLowerCase()}`;
   }
-  
+
   // Add specificity if too vague
   if (optimized.length < 50) {
     optimized += `. Please provide specific examples and detailed explanations.`;
   }
-  
+
   // Add formatting if it's a list
   if (optimized.includes(' and ') && !optimized.includes('\n')) {
     optimized = optimized.replace(/ and /g, '\n- ');
     optimized = 'Please provide:\n' + optimized;
   }
-  
+
   return optimized + ' [Optimized]';
 }
 
@@ -401,16 +401,16 @@ async function localOptimization(prompt) {
  */
 function createJSONPrompt() {
   const textarea = findPromptTextarea();
-  
+
   if (!textarea) {
     console.log('No prompt textarea found');
     showNotification('No prompt found to convert', 'error');
     return;
   }
-  
+
   // Get text from textarea or contenteditable div
   let originalPrompt = '';
-  
+
   try {
     if (textarea.tagName === 'TEXTAREA') {
       originalPrompt = textarea.value || '';
@@ -422,24 +422,24 @@ function createJSONPrompt() {
     console.error('Error getting text from element:', error);
     originalPrompt = '';
   }
-  
+
   // Ensure originalPrompt is a string
   originalPrompt = String(originalPrompt || '');
-  
+
   if (!originalPrompt.trim()) {
     console.log('Empty prompt');
     showNotification('No text to convert to JSON', 'warning');
     return;
   }
-  
+
   console.log('Creating JSON prompt for:', originalPrompt);
-  
+
   // Show loading state
   showNotification('Creating JSON prompt...', 'info');
-  
+
   // Create JSON prompt
   const jsonPrompt = createJSONFromPrompt(originalPrompt);
-  
+
   // Replace the textarea content
   if (textarea.tagName === 'TEXTAREA') {
     textarea.value = jsonPrompt;
@@ -454,10 +454,10 @@ function createJSONPrompt() {
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
     textarea.dispatchEvent(new Event('change', { bubbles: true }));
   }
-  
+
   // Focus back to textarea
   textarea.focus();
-  
+
   showNotification('JSON prompt created successfully!', 'success');
   console.log('JSON prompt created:', jsonPrompt);
 }
@@ -468,7 +468,7 @@ function createJSONPrompt() {
 function createJSONFromPrompt(prompt) {
   // Clean the prompt
   const cleanPrompt = prompt.trim();
-  
+
   // Create a structured JSON prompt
   const jsonPrompt = {
     "role": "user",
@@ -489,7 +489,7 @@ function createJSONFromPrompt(prompt) {
       "provide_context": true
     }
   };
-  
+
   // Convert to formatted JSON string
   return JSON.stringify(jsonPrompt, null, 2);
 }
@@ -502,7 +502,7 @@ function createJSONFromPrompt(prompt) {
 async function callOptimizationAPI(prompt) {
   const API_KEY = 'your-api-key-here';
   const API_URL = 'https://api.openai.com/v1/chat/completions';
-  
+
   try {
     const response = await fetch(API_URL, {
       method: 'POST',
@@ -526,11 +526,11 @@ async function callOptimizationAPI(prompt) {
         temperature: 0.7
       })
     });
-    
+
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status}`);
     }
-    
+
     const data = await response.json();
     return data.choices[0].message.content;
   } catch (error) {

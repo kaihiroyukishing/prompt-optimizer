@@ -3,7 +3,7 @@
 
 document.addEventListener('DOMContentLoaded', () => {
   updateStatus();
-  
+
   // Check if we're on ChatGPT
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const currentTab = tabs[0];
@@ -23,7 +23,7 @@ function updateStatus() {
 function setStatus(message, type) {
   const statusElement = document.getElementById('status');
   const statusText = document.getElementById('statusText');
-  
+
   statusElement.className = `status ${type}`;
   statusText.textContent = message;
 }
