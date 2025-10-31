@@ -5,16 +5,7 @@ This module defines all database models using SQLAlchemy ORM with comprehensive
 ChatGPT integration, user feedback tracking, and optimization effectiveness metrics.
 """
 
-from sqlalchemy import (
-    Column,
-    DateTime,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-)
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 

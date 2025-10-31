@@ -45,7 +45,7 @@ async def init_db():
     """Initialize database tables."""
     try:
         # Import all models here to ensure they are registered
-        from backend.models.prompt import Prompt  # noqa
+        from backend.models.prompt import CacheEntry, Prompt, Session  # noqa: F401
 
         # Create all tables
         Base.metadata.create_all(bind=engine)
@@ -58,7 +58,7 @@ async def init_db():
 def create_tables():
     """Create database tables (synchronous version)."""
     try:
-        from backend.models.prompt import Prompt  # noqa
+        from backend.models.prompt import CacheEntry, Prompt, Session  # noqa: F401
 
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")

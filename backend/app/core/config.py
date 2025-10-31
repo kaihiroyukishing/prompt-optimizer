@@ -18,6 +18,7 @@ logger = structlog.get_logger()
 
 class Settings(BaseSettings):
     """Application settings configuration."""
+
     DEBUG: bool = False
     SECRET_KEY: str = "your-secret-key-change-in-production"
     API_V1_STR: str = "/api/v1"
@@ -125,6 +126,8 @@ class Settings(BaseSettings):
         return results
 
     class Config:
+        """Pydantic configuration."""
+
         env_file = ".env"
         case_sensitive = True
 

@@ -15,9 +15,10 @@ from alembic import context
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+# Import all models to ensure they're registered with Base
 from backend.app.core.config import settings
 from backend.app.core.database import Base
-from backend.models.prompt import CacheEntry, Prompt, Session
+from backend.models.prompt import CacheEntry, Prompt, Session  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

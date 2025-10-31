@@ -5,10 +5,9 @@ This module provides helper functions for configuration management,
 validation, and environment setup.
 """
 
-import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import structlog
 
