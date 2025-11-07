@@ -5,11 +5,10 @@ This module provides validation functions for ChatGPT output quality,
 prompt data integrity, and session data consistency.
 """
 
+import logging
 from typing import Dict, List, Optional
 
-import structlog
-
-logger = structlog.get_logger()
+logger = logging.getLogger(__name__)
 
 
 def validate_chatgpt_output(output: Optional[str]) -> Dict:
@@ -140,19 +139,6 @@ def validate_prompt_data(prompt) -> Dict:
         ):
             result["warnings"].append("Optimized prompt is much shorter than original")
 
-    # Validate ratings are in range
-    if prompt.user_rating_optimization is not None:
-        if not (1 <= prompt.user_rating_optimization <= 5):
-            result["issues"].append(
-                f"user_rating_optimization out of range: {prompt.user_rating_optimization}"
-            )
-
-    if prompt.user_rating_chatgpt is not None:
-        if not (1 <= prompt.user_rating_chatgpt <= 5):
-            result["issues"].append(
-                f"user_rating_chatgpt out of range: {prompt.user_rating_chatgpt}"
-            )
-
     # Validate quality scores
     if prompt.chatgpt_quality_score is not None:
         if not validate_chatgpt_quality_score(prompt.chatgpt_quality_score):
@@ -167,14 +153,6 @@ def validate_prompt_data(prompt) -> Dict:
             result["issues"].extend(output_validation["issues"])
             result["valid"] = False
         result["warnings"].extend(output_validation["warnings"])
-
-    # Validate user_action enum values
-    if prompt.user_action:
-        valid_actions = ["accepted", "modified", "rejected"]
-        if prompt.user_action not in valid_actions:
-            result["warnings"].append(
-                f"user_action has unexpected value: {prompt.user_action} (expected: {valid_actions})"
-            )
 
     # Validate context_prompts is valid JSON if present
     if prompt.context_prompts:
@@ -232,15 +210,15 @@ def validate_session_data(session, prompts: Optional[List] = None) -> Dict:
                 f"but found {actual_prompt_count} prompts"
             )
 
-        # Validate ratings match
+        # Validate ratings match (using ChatGPT quality scores as proxy)
         if session.average_optimization_rating is not None:
-            rated_prompts = [
-                p for p in prompts if p.user_rating_optimization is not None
+            quality_prompts = [
+                p for p in prompts if p.chatgpt_quality_score is not None
             ]
-            if rated_prompts:
+            if quality_prompts:
                 actual_avg = sum(
-                    p.user_rating_optimization for p in rated_prompts
-                ) / len(rated_prompts)
+                    p.chatgpt_quality_score for p in quality_prompts
+                ) / len(quality_prompts)
                 if abs(session.average_optimization_rating - actual_avg) > 0.1:
                     result["warnings"].append(
                         f"average_optimization_rating mismatch: session says "

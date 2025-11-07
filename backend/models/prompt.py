@@ -1,10 +1,3 @@
-"""
-Enhanced Database models for Prompt Optimizer Backend with ChatGPT Integration
-
-This module defines all database models using SQLAlchemy ORM with comprehensive
-ChatGPT integration, user feedback tracking, and optimization effectiveness metrics.
-"""
-
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -40,23 +33,8 @@ class Prompt(Base):
     chatgpt_tokens_used = Column(Integer, nullable=True)
     chatgpt_response_time = Column(Integer, nullable=True)  # milliseconds
 
-    # User feedback system
-    user_rating_optimization = Column(
-        Integer, nullable=True
-    )  # 1-5 rating of our optimization
-    user_rating_chatgpt = Column(
-        Integer, nullable=True
-    )  # 1-5 rating of ChatGPT's output
-    user_feedback_optimization = Column(
-        Text, nullable=True
-    )  # Feedback on our optimization
-    user_feedback_chatgpt = Column(
-        Text, nullable=True
-    )  # Feedback on ChatGPT's response
-    user_action = Column(
-        String(50), nullable=True
-    )  # "accepted", "modified", "rejected"
-    final_prompt_used = Column(Text, nullable=True)  # What they actually used
+    # User usage tracking
+    final_prompt_used = Column(Text, nullable=True)  # What they actually used (if different from optimized_prompt, they modified it)
 
     # Optimization effectiveness metrics
     optimization_effectiveness = Column(
@@ -84,7 +62,6 @@ class Prompt(Base):
     __table_args__ = (
         Index("idx_session_created", "session_id", "created_at"),
         Index("idx_created_at", "created_at"),
-        Index("idx_user_ratings", "user_rating_optimization", "user_rating_chatgpt"),
         Index("idx_effectiveness", "optimization_effectiveness"),
         Index("idx_chatgpt_quality", "chatgpt_quality_score"),
     )
@@ -95,24 +72,39 @@ class Prompt(Base):
 
     # Business logic methods
     def calculate_effectiveness_score(self) -> float:
-        """Calculate overall effectiveness score based on user ratings and ChatGPT quality."""
-        if not self.user_rating_optimization or not self.chatgpt_quality_score:
+        """Calculate overall effectiveness score based on ChatGPT quality and usage."""
+        if not self.chatgpt_quality_score:
             return None
 
-        # Weighted average: 60% user rating, 40% ChatGPT quality
-        effectiveness = (self.user_rating_optimization * 0.6) + (
-            self.chatgpt_quality_score * 0.4
-        )
+        # Base score from ChatGPT quality
+        effectiveness = self.chatgpt_quality_score
+
+        # Bonus if user actually used the optimized prompt (or modified version)
+        if self.final_prompt_used:
+            # If they used it (even if modified), that's a positive signal
+            effectiveness = min(effectiveness + 0.1, 1.0)
+
         return round(effectiveness, 2)
 
     def is_high_quality(self) -> bool:
         """Check if this prompt optimization was high quality."""
+        # High quality if ChatGPT quality is good and user used it
         return (
-            self.user_rating_optimization
-            and self.user_rating_optimization >= 4
-            and self.chatgpt_quality_score
+            self.chatgpt_quality_score
             and self.chatgpt_quality_score >= 0.8
+            and self.final_prompt_used is not None  # User actually used it
         )
+    
+    def was_used(self) -> bool:
+        """Check if the user actually used this prompt."""
+        return self.final_prompt_used is not None
+    
+    def was_modified(self) -> bool:
+        """Check if the user modified the optimized prompt."""
+        if not self.final_prompt_used or not self.optimized_prompt:
+            return False
+        # If final_prompt_used is different from optimized_prompt, they modified it
+        return self.final_prompt_used.strip() != self.optimized_prompt.strip()
 
     def get_context_prompts_list(self) -> list:
         """Get context prompts as a Python list."""
@@ -196,22 +188,19 @@ class Session(Base):
         if not self.prompts:
             return
 
-        optimization_ratings = [
-            p.user_rating_optimization
+        # Calculate average ChatGPT quality scores
+        chatgpt_quality_scores = [
+            p.chatgpt_quality_score
             for p in self.prompts
-            if p.user_rating_optimization
-        ]
-        chatgpt_ratings = [
-            p.user_rating_chatgpt for p in self.prompts if p.user_rating_chatgpt
+            if p.chatgpt_quality_score is not None
         ]
 
-        if optimization_ratings:
-            self.average_optimization_rating = sum(optimization_ratings) / len(
-                optimization_ratings
+        if chatgpt_quality_scores:
+            # Use ChatGPT quality as a proxy for optimization quality
+            self.average_optimization_rating = sum(chatgpt_quality_scores) / len(
+                chatgpt_quality_scores
             )
-
-        if chatgpt_ratings:
-            self.average_chatgpt_rating = sum(chatgpt_ratings) / len(chatgpt_ratings)
+            self.average_chatgpt_rating = self.average_optimization_rating
 
     def get_feedback_patterns(self) -> dict:
         """Get common feedback patterns as a Python dict."""
@@ -232,10 +221,11 @@ class Session(Base):
 
     def is_highly_active(self) -> bool:
         """Check if this session is highly active based on usage patterns."""
+        # Highly active if user has many prompts and uses them
+        used_prompts = [p for p in self.prompts if p.final_prompt_used]
         return (
             self.total_prompts >= 10
-            and self.average_optimization_rating
-            and self.average_optimization_rating >= 4.0
+            and len(used_prompts) >= 5  # At least 5 prompts were actually used
         )
 
 

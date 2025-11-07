@@ -4,7 +4,7 @@ Database configuration and initialization for Prompt Optimizer Backend
 This module handles database connection, session management, and initialization.
 """
 
-import structlog
+import logging
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -12,9 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.app.core.config import settings
 
-logger = structlog.get_logger()
-
-# Create database engine
+logger = logging.getLogger(__name__)
 if settings.DATABASE_URL.startswith("sqlite"):
     engine = create_engine(
         settings.DATABASE_URL,
@@ -25,10 +23,8 @@ if settings.DATABASE_URL.startswith("sqlite"):
 else:
     engine = create_engine(settings.DATABASE_URL, echo=settings.DATABASE_ECHO)
 
-# Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create base class for models
 Base = declarative_base()
 
 

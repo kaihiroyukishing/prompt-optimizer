@@ -1,19 +1,18 @@
 """
 Configuration management for Prompt Optimizer Backend
 
-This module handles all configuration settings, environment variables,
-and different environment configurations (dev, prod, test).
+This module handles all configuration settings and environment variables.
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import List, Optional
 
-import structlog
 from pydantic import validator
 from pydantic_settings import BaseSettings
 
-logger = structlog.get_logger()
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -47,8 +46,6 @@ class Settings(BaseSettings):
     CACHE_TTL_SECONDS: int = 3600  # 1 hour
     CACHE_ENABLED: bool = True
 
-    RATE_LIMIT_PER_MINUTE: int = 60
-
     @validator("ALLOWED_HOSTS", pre=True)
     def assemble_cors_origins(cls, v):
         """Assemble CORS origins from string or list."""
@@ -58,12 +55,9 @@ class Settings(BaseSettings):
 
     @validator("SECRET_KEY")
     def validate_secret_key(cls, v):
-        """Warn if using default secret key in production."""
-        if (
-            v == "your-secret-key-change-in-production"
-            and os.getenv("ENVIRONMENT") == "production"
-        ):
-            logger.warning("Using default secret key in production! This is insecure.")
+        """Warn if using default secret key."""
+        if v == "your-secret-key-change-in-production":
+            logger.warning("Using default secret key! Change this in production.")
         return v
 
     def validate_api_keys(self) -> List[str]:
@@ -105,23 +99,9 @@ class Settings(BaseSettings):
             results["missing_files"] = missing_files
             results["warnings"].append(f"Missing files: {', '.join(missing_files)}")
 
-        # Production-specific validations
-        if os.getenv("ENVIRONMENT") == "production":
-            if self.DEBUG:
-                results["errors"].append("DEBUG must be False in production")
-                results["valid"] = False
-
-            if (
-                not self.SECRET_KEY
-                or self.SECRET_KEY == "your-secret-key-change-in-production"
-            ):
-                results["errors"].append("SECRET_KEY must be changed in production")
-                results["valid"] = False
-
-            if not self.REDIS_ENABLED:
-                results["warnings"].append(
-                    "Redis caching is recommended for production"
-                )
+        # Basic validations
+        if self.DEBUG and self.SECRET_KEY == "your-secret-key-change-in-production":
+            results["warnings"].append("Using default secret key in debug mode")
 
         return results
 
@@ -133,40 +113,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-
-
-class DevelopmentSettings(Settings):
-    """Development environment settings."""
-
-    DEBUG: bool = True
-    DATABASE_ECHO: bool = True
-    ALLOWED_HOSTS: List[str] = ["*"]
-
-
-class ProductionSettings(Settings):
-    """Production environment settings."""
-
-    DEBUG: bool = False
-    DATABASE_ECHO: bool = False
-    ALLOWED_HOSTS: List[str] = ["your-domain.com"]
-
-
-class TestSettings(Settings):
-    """Test environment settings."""
-
-    DEBUG: bool = True
-    DATABASE_URL: str = "sqlite:///./test_prompt_optimizer.db"
-    REDIS_ENABLED: bool = False
-    CACHE_ENABLED: bool = False
-
-
-def get_settings() -> Settings:
-    """Get settings based on environment."""
-    env = os.getenv("ENVIRONMENT", "development").lower()
-
-    if env == "production":
-        return ProductionSettings()
-    elif env == "test":
-        return TestSettings()
-    else:
-        return DevelopmentSettings()

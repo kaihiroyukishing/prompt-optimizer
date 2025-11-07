@@ -6,21 +6,20 @@ intent alignment, session pattern analysis, and optimization effectiveness.
 """
 
 import json
+import logging
 import re
 from typing import Dict, List, Optional
 
-import structlog
-
-logger = structlog.get_logger()
+logger = logging.getLogger(__name__)
 
 
 def detect_structure_preference(original_prompt: str) -> Dict:
     """
     Detect user's structure preference from original prompt.
-
+    
     Args:
         original_prompt: Original user prompt text
-
+    
     Returns:
         dict with structure preference:
         {
@@ -33,36 +32,20 @@ def detect_structure_preference(original_prompt: str) -> Dict:
             "preference": "any",
             "confidence": 0.0,
         }
-
+    
     prompt_lower = original_prompt.lower()
-
+    
     # Detect explicit structure requests
-    minimal_keywords = [
-        "one word",
-        "one sentence",
-        "brief",
-        "quick",
-        "simple answer",
-        "just tell me",
-        "direct answer",
-    ]
+    minimal_keywords = ["one word", "one sentence", "brief", "quick", "simple answer", 
+                        "just tell me", "direct answer"]
     simple_keywords = ["list", "bullet", "steps", "simple", "basic", "outline"]
-    structured_keywords = [
-        "detailed",
-        "comprehensive",
-        "organized",
-        "structured",
-        "section",
-        "guide",
-        "tutorial",
-        "explain with",
-        "break down",
-    ]
-
+    structured_keywords = ["detailed", "comprehensive", "organized", "structured", 
+                          "section", "guide", "tutorial", "explain with", "break down"]
+    
     has_minimal = any(kw in prompt_lower for kw in minimal_keywords)
     has_simple = any(kw in prompt_lower for kw in simple_keywords)
     has_structured = any(kw in prompt_lower for kw in structured_keywords)
-
+    
     # Determine preference
     if has_minimal and not (has_simple or has_structured):
         preference = "minimal"
@@ -85,28 +68,26 @@ def detect_structure_preference(original_prompt: str) -> Dict:
         else:
             preference = "any"
             confidence = 0.3
-
+    
     return {
         "preference": preference,
         "confidence": confidence,
     }
 
 
-def calculate_default_structure_score(
-    structure_elements: Dict, element_count: int
-) -> float:
+def calculate_default_structure_score(structure_elements: Dict, element_count: int) -> float:
     """
     Calculate default structure score when no user preference is detected.
-
+    
     Args:
         structure_elements: Dict with boolean flags for each element type
         element_count: Number of structural elements present
-
+    
     Returns:
         structure_score: float (0-1)
     """
     structure_score = 0.0
-
+    
     # Default scoring: more structure = better (general purpose)
     if structure_elements["paragraphs"]:
         structure_score += 0.3
@@ -116,17 +97,17 @@ def calculate_default_structure_score(
         structure_score += 0.2
     if structure_elements["formatting"]:
         structure_score += 0.2
-
+    
     return min(structure_score, 1.0)
 
 
 def detect_length_preference(original_prompt: str) -> Dict:
     """
     Detect user's length preference from original prompt.
-
+    
     Args:
         original_prompt: Original user prompt text
-
+    
     Returns:
         dict with length preference:
         {
@@ -143,36 +124,19 @@ def detect_length_preference(original_prompt: str) -> Dict:
             "max_expected": 2000,
             "confidence": 0.0,
         }
-
+    
     prompt_lower = original_prompt.lower()
-
+    
     # Detect explicit length requests
-    short_keywords = [
-        "short",
-        "brief",
-        "concise",
-        "one word",
-        "one sentence",
-        "quick",
-        "summarize",
-    ]
-    long_keywords = [
-        "detailed",
-        "comprehensive",
-        "thorough",
-        "explain in detail",
-        "full explanation",
-        "elaborate",
-        "extensive",
-        "in depth",
-        "complete",
-    ]
+    short_keywords = ["short", "brief", "concise", "one word", "one sentence", "quick", "summarize"]
+    long_keywords = ["detailed", "comprehensive", "thorough", "explain in detail", "full explanation", 
+                     "elaborate", "extensive", "in depth", "complete"]
     medium_keywords = ["explain", "describe", "tell me about", "what is"]
-
+    
     has_short = any(kw in prompt_lower for kw in short_keywords)
     has_long = any(kw in prompt_lower for kw in long_keywords)
     has_medium = any(kw in prompt_lower for kw in medium_keywords)
-
+    
     # Determine preference
     if has_short and not has_long:
         preference = "short"
@@ -201,7 +165,7 @@ def detect_length_preference(original_prompt: str) -> Dict:
             preference = "any"
             min_expected, max_expected = 200, 2000
             confidence = 0.3
-
+    
     return {
         "preference": preference,
         "min_expected": min_expected,
@@ -241,11 +205,9 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
 
     output = prompt.chatgpt_output
     response_length = len(output)
-
+    
     # Get original prompt to understand user intent
-    original_prompt = (
-        prompt.original_prompt if hasattr(prompt, "original_prompt") else None
-    )
+    original_prompt = prompt.original_prompt if hasattr(prompt, 'original_prompt') else None
 
     # Check if response contains code
     code_indicators = [
@@ -255,23 +217,19 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
         r"class\s+\w+",  # Classes
         r"import\s+\w+",  # Imports
     ]
-    has_code = any(
-        re.search(pattern, output, re.IGNORECASE) for pattern in code_indicators
-    )
+    has_code = any(re.search(pattern, output, re.IGNORECASE) for pattern in code_indicators)
 
     # Detect user's structure preference from original prompt
-    structure_pref = (
-        detect_structure_preference(original_prompt) if original_prompt else None
-    )
-
+    structure_pref = detect_structure_preference(original_prompt) if original_prompt else None
+    
     # Consider session preferences if available
-    if session and hasattr(session, "preferred_style"):
+    if session and hasattr(session, 'preferred_style'):
         if session.preferred_style == "concise":
             # User prefers minimal structure
             if structure_pref and structure_pref["preference"] == "any":
                 structure_pref["preference"] = "minimal"
                 structure_pref["confidence"] = max(structure_pref["confidence"], 0.5)
-
+    
     # Calculate structure score based on what user expects
     structure_elements = {
         "paragraphs": bool("\n\n" in output),
@@ -279,14 +237,14 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
         "lists": bool(re.search(r"^[\*\-\+]\s+", output, re.MULTILINE)),
         "formatting": bool("```" in output or "`" in output),
     }
-
+    
     # Count structural elements
     element_count = sum(structure_elements.values())
-
+    
     if structure_pref and structure_pref["confidence"] > 0.3:
         # User has detectable structure preference
         expected_level = structure_pref["preference"]
-
+        
         if expected_level == "minimal":
             # User wants simple/minimal structure
             # Too much structure is bad, some is okay
@@ -298,14 +256,12 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
                 structure_score = 0.6  # Two is acceptable but getting too structured
             else:
                 structure_score = 0.3  # Too much structure for minimal request
-
+                
         elif expected_level == "simple":
             # User wants simple structure (lists, maybe paragraphs)
             if element_count == 0:
                 structure_score = 0.4  # Some structure expected
-            elif element_count <= 2 and (
-                structure_elements["lists"] or structure_elements["paragraphs"]
-            ):
+            elif element_count <= 2 and (structure_elements["lists"] or structure_elements["paragraphs"]):
                 structure_score = 1.0  # Lists/paragraphs are perfect
             elif element_count <= 2:
                 structure_score = 0.7  # Some structure but not ideal type
@@ -313,7 +269,7 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
                 structure_score = 0.5  # Getting too complex
             else:
                 structure_score = 0.3  # Way too complex
-
+                
         elif expected_level == "structured":
             # User wants organized structure (headers, lists, paragraphs)
             if element_count == 0:
@@ -327,16 +283,10 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
             else:
                 structure_score = 0.3
         else:
-            # "any" or unknown - use balanced scoring
-            structure_score = calculate_default_structure_score(
-                structure_elements, element_count
-            )
+            structure_score = calculate_default_structure_score(structure_elements, element_count)
     else:
-        # No clear preference - use balanced default scoring
-        structure_score = calculate_default_structure_score(
-            structure_elements, element_count
-        )
-
+        structure_score = calculate_default_structure_score(structure_elements, element_count)
+    
     structure_score = min(structure_score, 1.0)
 
     # Token efficiency (characters per token estimate, higher is better)
@@ -348,9 +298,9 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
 
     # Detect user's length preference from original prompt
     length_pref = detect_length_preference(original_prompt) if original_prompt else None
-
+    
     # Consider session preferences if available
-    if session and hasattr(session, "preferred_style"):
+    if session and hasattr(session, 'preferred_style'):
         if session.preferred_style == "concise":
             # User generally prefers short responses
             if length_pref and length_pref["preference"] == "any":
@@ -365,23 +315,21 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
                 length_pref["min_expected"] = max(length_pref["min_expected"], 500)
                 length_pref["max_expected"] = max(length_pref["max_expected"], 3000)
                 length_pref["confidence"] = max(length_pref["confidence"], 0.5)
-
+    
     # Calculate length quality score relative to user's expected range
     if length_pref and length_pref["confidence"] > 0.3:
         # User has a detectable preference - score relative to their expectation
         min_expected = length_pref["min_expected"]
         max_expected = length_pref["max_expected"]
         mid_point = (min_expected + max_expected) / 2
-
+        
         if response_length < min_expected:
             # Too short relative to expectation
             if response_length < min_expected * 0.5:
                 length_quality = 0.2  # Way too short
             else:
                 # Slightly short - linear ramp
-                length_quality = (
-                    0.2 + ((response_length / min_expected) - 0.5) * 0.6
-                )  # 0.2 to 0.8
+                length_quality = 0.2 + ((response_length / min_expected) - 0.5) * 0.6  # 0.2 to 0.8
         elif response_length <= max_expected:
             # Within expected range - optimal
             if min_expected == max_expected:  # Exact length requested
@@ -395,9 +343,7 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
                 max_distance = (max_expected - min_expected) / 2
                 if max_distance > 0:
                     normalized_distance = min(distance_from_mid / max_distance, 1.0)
-                    length_quality = (
-                        1.0 - (normalized_distance**2) * 0.3
-                    )  # 1.0 to 0.7
+                    length_quality = 1.0 - (normalized_distance ** 2) * 0.3  # 1.0 to 0.7
                 else:
                     length_quality = 1.0
         else:
@@ -408,10 +354,8 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
             elif excess_ratio < 1.0:  # Moderately longer
                 length_quality = 0.65 - (excess_ratio - 0.5) * 0.4  # 0.65 to 0.45
             else:  # Way too long
-                length_quality = max(
-                    0.45 - (excess_ratio - 1.0) * 0.2, 0.3
-                )  # Cap at 0.3
-
+                length_quality = max(0.45 - (excess_ratio - 1.0) * 0.2, 0.3)  # Cap at 0.3
+        
         # Store length fit score for analysis
         length_fit_score = length_quality
     else:
@@ -422,12 +366,12 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
             length_quality = 0.3 + ((response_length - 50) / 50) * 0.4
         elif response_length <= 2000:
             normalized_length = (response_length - 100) / 1900
-            length_quality = 0.7 + (normalized_length**0.7) * 0.3
+            length_quality = 0.7 + (normalized_length ** 0.7) * 0.3
         elif response_length <= 5000:
             length_quality = 1.0 - ((response_length - 2000) / 3000) * 0.2
         else:
             length_quality = max(0.8 - ((response_length - 5000) / 10000) * 0.3, 0.5)
-
+        
         length_fit_score = 0.5  # Neutral since we don't know user preference
 
     # Overall quality score (weighted) - General purpose, not code-specific
@@ -446,9 +390,7 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
         "has_code": has_code,
         "token_efficiency": round(token_efficiency, 2),
         "structure_score": round(structure_score, 3),
-        "length_fit_score": round(
-            length_fit_score, 3
-        ),  # How well length matches user intent
+        "length_fit_score": round(length_fit_score, 3),  # How well length matches user intent
     }
 
 
@@ -493,9 +435,7 @@ def extract_chatgpt_insights(prompt) -> Dict:
     # Use word count and structural elements instead of code-specific metrics
     word_count = len(output.split())
     paragraph_count = len(output.split("\n\n"))
-    has_structure = bool(
-        re.search(r"#{1,6}\s+|^\d+\.\s+|^[\*\-\+]\s+", output, re.MULTILINE)
-    )
+    has_structure = bool(re.search(r"#{1,6}\s+|^\d+\.\s+|^[\*\-\+]\s+", output, re.MULTILINE))
 
     if word_count > 500 or paragraph_count > 5 or (has_structure and word_count > 200):
         complexity = "complex"
@@ -508,30 +448,10 @@ def extract_chatgpt_insights(prompt) -> Dict:
     keywords = []
     # General keywords that appear in various contexts (not code-specific)
     common_keywords = [
-        "example",
-        "important",
-        "note",
-        "consider",
-        "recommend",
-        "suggest",
-        "key",
-        "factor",
-        "benefit",
-        "advantage",
-        "disadvantage",
-        "approach",
-        "method",
-        "process",
-        "step",
-        "guide",
-        "explanation",
-        "summary",
-        "overview",
-        "detail",
-        "specific",
-        "general",
-        "context",
-        "application",
+        "example", "important", "note", "consider", "recommend", "suggest",
+        "key", "factor", "benefit", "advantage", "disadvantage", "approach",
+        "method", "process", "step", "guide", "explanation", "summary",
+        "overview", "detail", "specific", "general", "context", "application"
     ]
     for keyword in common_keywords:
         if keyword in output.lower():
@@ -569,23 +489,15 @@ def calculate_optimization_improvement(
     optimized_length = len(optimized_prompt)
 
     # Length improvement (more detail often = better)
-    length_improvement = (
-        min((optimized_length - original_length) / original_length, 1.0)
-        if original_length > 0
-        else 0.0
-    )
+    length_improvement = min((optimized_length - original_length) / original_length, 1.0) if original_length > 0 else 0.0
 
     # Structure improvement (check if optimized prompt has better structure)
     original_structure = bool(re.search(r"[.!?]", original_prompt))
     optimized_structure = bool(re.search(r"[.!?]", optimized_prompt))
-    structure_improvement = (
-        0.5 if optimized_structure and not original_structure else 0.0
-    )
+    structure_improvement = 0.5 if optimized_structure and not original_structure else 0.0
 
     # Response quality (if ChatGPT output is comprehensive, optimization worked)
-    response_quality = min(
-        len(chatgpt_output) / 1000, 1.0
-    )  # Normalize to 1.0 at 1000 chars
+    response_quality = min(len(chatgpt_output) / 1000, 1.0)  # Normalize to 1.0 at 1000 chars
 
     # Weighted average
     improvement = (
@@ -635,18 +547,7 @@ def extract_user_intent(prompt: str) -> Dict:
         intent_type = "request"
 
     # Extract action verbs
-    action_verbs = [
-        "write",
-        "create",
-        "make",
-        "build",
-        "generate",
-        "implement",
-        "optimize",
-        "fix",
-        "explain",
-        "show",
-    ]
+    action_verbs = ["write", "create", "make", "build", "generate", "implement", "optimize", "fix", "explain", "show"]
     found_verbs = [verb for verb in action_verbs if verb in prompt_lower]
 
     # Determine complexity
@@ -663,29 +564,11 @@ def extract_user_intent(prompt: str) -> Dict:
     # Keywords across different domains (business, creative, technical, academic, etc.)
     domain_keywords = [
         # Action/process words
-        "create",
-        "analyze",
-        "explain",
-        "compare",
-        "evaluate",
-        "design",
-        "develop",
+        "create", "analyze", "explain", "compare", "evaluate", "design", "develop",
         # Content types
-        "document",
-        "report",
-        "summary",
-        "list",
-        "plan",
-        "strategy",
-        "proposal",
+        "document", "report", "summary", "list", "plan", "strategy", "proposal",
         # General concepts
-        "example",
-        "case",
-        "scenario",
-        "situation",
-        "context",
-        "approach",
-        "method",
+        "example", "case", "scenario", "situation", "context", "approach", "method"
     ]
     keywords = [kw for kw in domain_keywords if kw in prompt_lower]
 
@@ -697,9 +580,7 @@ def extract_user_intent(prompt: str) -> Dict:
     }
 
 
-def calculate_intent_alignment(
-    chatgpt_output: Optional[str], user_intent: Dict
-) -> float:
+def calculate_intent_alignment(chatgpt_output: Optional[str], user_intent: Dict) -> float:
     """
     Calculate how well ChatGPT output matches user intent.
 
@@ -732,36 +613,14 @@ def calculate_intent_alignment(
     intent_type = user_intent.get("intent_type", "")
     if intent_type == "question":
         # Questions should provide answers - check for response indicators
-        answer_indicators = [
-            "because",
-            "since",
-            "due to",
-            "in order to",
-            "here's",
-            "the answer",
-        ]
-        if (
-            any(indicator in output_lower for indicator in answer_indicators)
-            or len(output_lower) > 100
-        ):
+        answer_indicators = ["because", "since", "due to", "in order to", "here's", "the answer"]
+        if any(indicator in output_lower for indicator in answer_indicators) or len(output_lower) > 100:
             alignment_score += 0.2
     elif intent_type == "command":
         # Commands should produce results - check for actionable content
         # Could be code, instructions, structured output, etc.
-        result_indicators = [
-            "```",
-            "step",
-            "first",
-            "second",
-            "then",
-            "finally",
-            "1.",
-            "2.",
-        ]
-        if (
-            any(indicator in output_lower for indicator in result_indicators)
-            or len(output_lower) > 150
-        ):
+        result_indicators = ["```", "step", "first", "second", "then", "finally", "1.", "2."]
+        if any(indicator in output_lower for indicator in result_indicators) or len(output_lower) > 150:
             alignment_score += 0.2
     elif intent_type == "request":
         alignment_score += 0.1  # Requests are general, give partial credit
@@ -807,12 +666,8 @@ def analyze_session_patterns(session, prompts: List) -> Dict:
         }
 
     # Calculate average prompt length
-    prompt_lengths = [
-        len(p.original_prompt) if p.original_prompt else 0 for p in prompts
-    ]
-    average_prompt_length = (
-        sum(prompt_lengths) / len(prompt_lengths) if prompt_lengths else 0.0
-    )
+    prompt_lengths = [len(p.original_prompt) if p.original_prompt else 0 for p in prompts]
+    average_prompt_length = sum(prompt_lengths) / len(prompt_lengths) if prompt_lengths else 0.0
 
     # Determine preferred style based on prompt lengths and optimization patterns
     if average_prompt_length < 50:
@@ -824,23 +679,18 @@ def analyze_session_patterns(session, prompts: List) -> Dict:
 
     # Extract common feedback patterns
     feedback_patterns = {}
-    high_rated_prompts = [
-        p
-        for p in prompts
-        if p.user_rating_optimization and p.user_rating_optimization >= 4
+    # Use prompts that were actually used as "high quality" indicator
+    used_prompts = [
+        p for p in prompts if p.final_prompt_used is not None
     ]
-    if high_rated_prompts:
-        feedback_patterns["high_rated_count"] = len(high_rated_prompts)
-        feedback_patterns["high_rated_ratio"] = len(high_rated_prompts) / len(prompts)
+    if used_prompts:
+        feedback_patterns["used_count"] = len(used_prompts)
+        feedback_patterns["used_ratio"] = len(used_prompts) / len(prompts) if prompts else 0
 
     # Analyze intents
-    intents = [
-        extract_user_intent(p.original_prompt) for p in prompts if p.original_prompt
-    ]
+    intents = [extract_user_intent(p.original_prompt) for p in prompts if p.original_prompt]
     intent_types = [intent.get("intent_type", "unknown") for intent in intents]
-    most_common_intent = (
-        max(set(intent_types), key=intent_types.count) if intent_types else "unknown"
-    )
+    most_common_intent = max(set(intent_types), key=intent_types.count) if intent_types else "unknown"
 
     # Calculate success rate (prompts with high ChatGPT quality scores)
     successful_prompts = [
@@ -886,7 +736,7 @@ def extract_success_patterns(prompts: List) -> Dict:
         p
         for p in prompts
         if (p.chatgpt_quality_score and p.chatgpt_quality_score >= 0.7)
-        or (p.user_rating_optimization and p.user_rating_optimization >= 4)
+        or (p.final_prompt_used is not None)  # User actually used it
     ]
 
     if not high_quality:
@@ -909,19 +759,8 @@ def extract_success_patterns(prompts: List) -> Dict:
     ).lower()
     # General keywords that appear in successful prompts across domains
     keywords = [
-        "example",
-        "explanation",
-        "detail",
-        "specific",
-        "clear",
-        "comprehensive",
-        "step",
-        "process",
-        "method",
-        "approach",
-        "consider",
-        "important",
-        "note",
+        "example", "explanation", "detail", "specific", "clear", "comprehensive",
+        "step", "process", "method", "approach", "consider", "important", "note"
     ]
     effective_keywords = [kw for kw in keywords if kw in all_text]
 
@@ -931,3 +770,4 @@ def extract_success_patterns(prompts: List) -> Dict:
         "optimization_techniques": [],  # Would need to analyze patterns
         "effective_keywords": effective_keywords[:10],
     }
+
