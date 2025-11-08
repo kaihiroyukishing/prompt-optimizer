@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.core.database import get_db
 from backend.models.prompt import Prompt, Session as SessionModel
-from backend.utils.db_helpers import analyze_chatgpt_quality
+from backend.utils.db_helpers import analyze_chatgpt_quality, analyze_session_patterns
 
 router = APIRouter()
 
@@ -108,12 +108,21 @@ async def save_chatgpt_response(
     db.add(prompt)
     db.flush()
     
-    quality_analysis = analyze_chatgpt_quality(prompt)
+    quality_analysis = analyze_chatgpt_quality(prompt, session_obj)
     prompt.chatgpt_quality_score = quality_analysis.get("quality_score", 0.0)
     prompt.optimization_effectiveness = prompt.calculate_effectiveness_score()
     
     session_obj.update_analytics(prompt)
-    session_obj.total_chatgpt_interactions += 1
+    
+    all_prompts = db.query(Prompt).filter(Prompt.session_id == request.session_id).all()
+    if all_prompts:
+        patterns = analyze_session_patterns(session_obj, all_prompts)
+        preferred_style = patterns.get("preferred_style")
+        if preferred_style and preferred_style != "unknown":
+            session_obj.preferred_style = preferred_style
+        feedback_patterns = patterns.get("common_feedback_patterns", {})
+        if feedback_patterns:
+            session_obj.set_feedback_patterns(feedback_patterns)
     
     db.commit()
     

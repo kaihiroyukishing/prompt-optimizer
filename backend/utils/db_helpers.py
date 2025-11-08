@@ -223,7 +223,7 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
     structure_pref = detect_structure_preference(original_prompt) if original_prompt else None
     
     # Consider session preferences if available
-    if session and hasattr(session, 'preferred_style'):
+    if session and hasattr(session, 'preferred_style') and session.preferred_style:
         if session.preferred_style == "concise":
             # User prefers minimal structure
             if structure_pref and structure_pref["preference"] == "any":
@@ -300,7 +300,7 @@ def analyze_chatgpt_quality(prompt, session=None) -> Dict:
     length_pref = detect_length_preference(original_prompt) if original_prompt else None
     
     # Consider session preferences if available
-    if session and hasattr(session, 'preferred_style'):
+    if session and hasattr(session, 'preferred_style') and session.preferred_style:
         if session.preferred_style == "concise":
             # User generally prefers short responses
             if length_pref and length_pref["preference"] == "any":
@@ -659,17 +659,43 @@ def analyze_session_patterns(session, prompts: List) -> Dict:
     if not prompts:
         return {
             "preferred_style": "unknown",
-            "common_feedback_patterns": {},
+            "common_feedback_patterns": {
+                "usage": {
+                    "used_count": 0,
+                    "used_ratio": 0.0,
+                    "modification_rate": 0.0,
+                    "modification_types": {
+                        "added_details": 0,
+                        "removed_parts": 0,
+                        "simplified": 0,
+                        "unchanged": 0
+                    }
+                },
+                "success": {
+                    "high_quality_count": 0,
+                    "high_quality_ratio": 0.0,
+                    "average_quality_score": 0.0,
+                    "best_intent_types": [],
+                    "best_complexity": [],
+                    "intent_success_rates": {},
+                    "complexity_success_rates": {}
+                },
+                "optimization": {
+                    "average_improvement": 0.0,
+                    "effective_methods": []
+                },
+                "content": {
+                    "structure_preference": "any",
+                    "length_preference": "any"
+                }
+            },
             "average_prompt_length": 0.0,
             "most_common_intent": "unknown",
             "success_rate": 0.0,
         }
-
-    # Calculate average prompt length
     prompt_lengths = [len(p.original_prompt) if p.original_prompt else 0 for p in prompts]
     average_prompt_length = sum(prompt_lengths) / len(prompt_lengths) if prompt_lengths else 0.0
-
-    # Determine preferred style based on prompt lengths and optimization patterns
+    
     if average_prompt_length < 50:
         preferred_style = "concise"
     elif average_prompt_length > 200:
@@ -677,26 +703,236 @@ def analyze_session_patterns(session, prompts: List) -> Dict:
     else:
         preferred_style = "moderate"
 
-    # Extract common feedback patterns
     feedback_patterns = {}
-    # Use prompts that were actually used as "high quality" indicator
+    
     used_prompts = [
         p for p in prompts if p.final_prompt_used is not None
     ]
+    
     if used_prompts:
-        feedback_patterns["used_count"] = len(used_prompts)
-        feedback_patterns["used_ratio"] = len(used_prompts) / len(prompts) if prompts else 0
-
-    # Analyze intents
+        feedback_patterns["usage"] = {
+            "used_count": len(used_prompts),
+            "used_ratio": round(len(used_prompts) / len(prompts) if prompts else 0, 3),
+        }
+        
+        # Calculate modification patterns
+        modified_prompts = [p for p in used_prompts if p.was_modified()]
+        modification_rate = len(modified_prompts) / len(used_prompts) if used_prompts else 0.0
+        feedback_patterns["usage"]["modification_rate"] = round(modification_rate, 3)
+        
+        # Analyze modification types
+        modification_types = {
+            "added_details": 0,
+            "removed_parts": 0,
+            "simplified": 0,
+            "unchanged": 0
+        }
+        
+        for prompt in used_prompts:
+            if not prompt.was_modified():
+                modification_types["unchanged"] += 1
+            else:
+                optimized_len = len(prompt.optimized_prompt) if prompt.optimized_prompt else 0
+                final_len = len(prompt.final_prompt_used) if prompt.final_prompt_used else 0
+                
+                if optimized_len == 0:
+                    modification_types["unchanged"] += 1
+                elif final_len > optimized_len * 1.2:
+                    modification_types["added_details"] += 1
+                elif final_len < optimized_len * 0.8:
+                    modification_types["removed_parts"] += 1
+                else:
+                    modification_types["simplified"] += 1
+        
+        feedback_patterns["usage"]["modification_types"] = modification_types
+    else:
+        feedback_patterns["usage"] = {
+            "used_count": 0,
+            "used_ratio": 0.0,
+            "modification_rate": 0.0,
+            "modification_types": {
+                "added_details": 0,
+                "removed_parts": 0,
+                "simplified": 0,
+                "unchanged": 0
+            }
+        }
+    
+    quality_threshold = 0.7
+    min_sample_size = 3
+    
+    high_quality_prompts = [
+        p for p in prompts if p.chatgpt_quality_score and p.chatgpt_quality_score >= quality_threshold
+    ]
+    
+    quality_scores = [
+        p.chatgpt_quality_score for p in prompts if p.chatgpt_quality_score is not None
+    ]
+    
+    feedback_patterns["success"] = {
+        "high_quality_count": len(high_quality_prompts),
+        "high_quality_ratio": round(len(high_quality_prompts) / len(prompts) if prompts else 0.0, 3),
+        "average_quality_score": round(sum(quality_scores) / len(quality_scores) if quality_scores else 0.0, 3),
+        "best_intent_types": [],
+        "best_complexity": [],
+        "intent_success_rates": {},
+        "complexity_success_rates": {}
+    }
+    
     intents = [extract_user_intent(p.original_prompt) for p in prompts if p.original_prompt]
+    intent_performance = {}
+    
+    for i, prompt in enumerate(prompts):
+        if prompt.chatgpt_quality_score is None:
+            continue
+        intent_type = intents[i].get("intent_type", "unknown") if i < len(intents) else "unknown"
+        
+        if intent_type not in intent_performance:
+            intent_performance[intent_type] = {
+                "scores": [],
+                "high_quality_count": 0,
+                "total_count": 0
+            }
+        
+        intent_performance[intent_type]["scores"].append(prompt.chatgpt_quality_score)
+        intent_performance[intent_type]["total_count"] += 1
+        if prompt.chatgpt_quality_score >= quality_threshold:
+            intent_performance[intent_type]["high_quality_count"] += 1
+    
+    intent_stats = []
+    for intent_type, data in intent_performance.items():
+        if data["total_count"] >= min_sample_size:
+            avg_score = sum(data["scores"]) / len(data["scores"])
+            success_rate = data["high_quality_count"] / data["total_count"]
+            intent_stats.append({
+                "intent_type": intent_type,
+                "average_score": avg_score,
+                "success_rate": success_rate,
+                "count": data["total_count"]
+            })
+            feedback_patterns["success"]["intent_success_rates"][intent_type] = round(success_rate, 3)
+    
+
+    intent_stats.sort(key=lambda x: x["average_score"], reverse=True)
+    feedback_patterns["success"]["best_intent_types"] = [
+        stat["intent_type"] for stat in intent_stats[:2]
+    ]
+    
+
+    complexity_performance = {}
+    
+    for i, prompt in enumerate(prompts):
+        if prompt.chatgpt_quality_score is None:
+            continue
+        complexity = intents[i].get("complexity", "unknown") if i < len(intents) else "unknown"
+        
+        if complexity not in complexity_performance:
+            complexity_performance[complexity] = {
+                "scores": [],
+                "high_quality_count": 0,
+                "total_count": 0
+            }
+        
+        complexity_performance[complexity]["scores"].append(prompt.chatgpt_quality_score)
+        complexity_performance[complexity]["total_count"] += 1
+        if prompt.chatgpt_quality_score >= quality_threshold:
+            complexity_performance[complexity]["high_quality_count"] += 1
+    
+
+    complexity_stats = []
+    for complexity, data in complexity_performance.items():
+        if data["total_count"] >= min_sample_size:
+            avg_score = sum(data["scores"]) / len(data["scores"])
+            success_rate = data["high_quality_count"] / data["total_count"]
+            complexity_stats.append({
+                "complexity": complexity,
+                "average_score": avg_score,
+                "success_rate": success_rate,
+                "count": data["total_count"]
+            })
+            feedback_patterns["success"]["complexity_success_rates"][complexity] = round(success_rate, 3)
+    
+
+    complexity_stats.sort(key=lambda x: x["average_score"], reverse=True)
+    feedback_patterns["success"]["best_complexity"] = [
+        stat["complexity"] for stat in complexity_stats[:2]
+    ]
+
+    # Phase 3: Optimization Effectiveness
+    min_sample_size = 3
+    
+    effectiveness_scores = [
+        p.optimization_effectiveness for p in prompts 
+        if p.optimization_effectiveness is not None
+    ]
+    
+    feedback_patterns["optimization"] = {
+        "average_improvement": round(
+            sum(effectiveness_scores) / len(effectiveness_scores) 
+            if effectiveness_scores else 0.0, 
+            3
+        ),
+        "effective_methods": []
+    }
+    
+    # Analyze optimization methods performance
+    method_performance = {}
+    
+    for prompt in prompts:
+        if prompt.optimization_effectiveness is None or not prompt.optimization_method:
+            continue
+        
+        method = prompt.optimization_method
+        
+        if method not in method_performance:
+            method_performance[method] = {
+                "scores": [],
+                "count": 0
+            }
+        
+        method_performance[method]["scores"].append(prompt.optimization_effectiveness)
+        method_performance[method]["count"] += 1
+    
+    # Calculate averages and find top methods
+    method_stats = []
+    for method, data in method_performance.items():
+        if data["count"] >= min_sample_size:
+            avg_effectiveness = sum(data["scores"]) / len(data["scores"])
+            method_stats.append({
+                "method": method,
+                "average_effectiveness": avg_effectiveness,
+                "count": data["count"]
+            })
+    
+    # Get top 2 methods by average effectiveness
+    method_stats.sort(key=lambda x: x["average_effectiveness"], reverse=True)
+    feedback_patterns["optimization"]["effective_methods"] = [
+        stat["method"] for stat in method_stats[:2]
+    ]
+
+    # Phase 4: Content Patterns
+    structure_preferences = []
+    length_preferences = []
+    
+    for prompt in prompts:
+        if prompt.original_prompt:
+            structure_pref = detect_structure_preference(prompt.original_prompt)
+            length_pref = detect_length_preference(prompt.original_prompt)
+            
+            if structure_pref["preference"] != "any":
+                structure_preferences.append(structure_pref["preference"])
+            if length_pref["preference"] != "any":
+                length_preferences.append(length_pref["preference"])
+    
+    feedback_patterns["content"] = {
+        "structure_preference": max(set(structure_preferences), key=structure_preferences.count) if structure_preferences else "any",
+        "length_preference": max(set(length_preferences), key=length_preferences.count) if length_preferences else "any"
+    }
+
     intent_types = [intent.get("intent_type", "unknown") for intent in intents]
     most_common_intent = max(set(intent_types), key=intent_types.count) if intent_types else "unknown"
-
-    # Calculate success rate (prompts with high ChatGPT quality scores)
-    successful_prompts = [
-        p for p in prompts if p.chatgpt_quality_score and p.chatgpt_quality_score >= 0.7
-    ]
-    success_rate = len(successful_prompts) / len(prompts) if prompts else 0.0
+    
+    success_rate = feedback_patterns["success"]["high_quality_ratio"]
 
     return {
         "preferred_style": preferred_style,
@@ -704,70 +940,5 @@ def analyze_session_patterns(session, prompts: List) -> Dict:
         "average_prompt_length": round(average_prompt_length, 2),
         "most_common_intent": most_common_intent,
         "success_rate": round(success_rate, 3),
-    }
-
-
-def extract_success_patterns(prompts: List) -> Dict:
-    """
-    Extract patterns from high-rated prompts.
-
-    Args:
-        prompts: List of Prompt instances
-
-    Returns:
-        dict with success patterns:
-        {
-            "common_phrases": list,
-            "average_length": float,
-            "optimization_techniques": list,
-            "effective_keywords": list
-        }
-    """
-    if not prompts:
-        return {
-            "common_phrases": [],
-            "average_length": 0.0,
-            "optimization_techniques": [],
-            "effective_keywords": [],
-        }
-
-    # Filter high-quality prompts
-    high_quality = [
-        p
-        for p in prompts
-        if (p.chatgpt_quality_score and p.chatgpt_quality_score >= 0.7)
-        or (p.final_prompt_used is not None)  # User actually used it
-    ]
-
-    if not high_quality:
-        return {
-            "common_phrases": [],
-            "average_length": 0.0,
-            "optimization_techniques": [],
-            "effective_keywords": [],
-        }
-
-    # Calculate average length of successful prompts
-    lengths = [
-        len(p.optimized_prompt) if p.optimized_prompt else 0 for p in high_quality
-    ]
-    average_length = sum(lengths) / len(lengths) if lengths else 0.0
-
-    # Extract common keywords from successful optimizations (general purpose)
-    all_text = " ".join(
-        [p.optimized_prompt for p in high_quality if p.optimized_prompt]
-    ).lower()
-    # General keywords that appear in successful prompts across domains
-    keywords = [
-        "example", "explanation", "detail", "specific", "clear", "comprehensive",
-        "step", "process", "method", "approach", "consider", "important", "note"
-    ]
-    effective_keywords = [kw for kw in keywords if kw in all_text]
-
-    return {
-        "common_phrases": [],  # Would need NLP for this
-        "average_length": round(average_length, 2),
-        "optimization_techniques": [],  # Would need to analyze patterns
-        "effective_keywords": effective_keywords[:10],
     }
 

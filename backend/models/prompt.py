@@ -131,8 +131,6 @@ class Session(Base):
 
     # Core identification
     id = Column(String(255), primary_key=True, index=True)
-    user_agent = Column(Text, nullable=True)
-    ip_address = Column(String(45), nullable=True)  # IPv6 max length
 
     # Session lifecycle
     created_at = Column(DateTime(timezone=True), server_default=func.now())
