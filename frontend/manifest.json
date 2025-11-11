@@ -8,7 +8,8 @@
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
-    "https://*.chatgpt.com/*"
+    "https://*.chatgpt.com/*",
+    "http://localhost:8000/*"
   ],
   "content_scripts": [
     {

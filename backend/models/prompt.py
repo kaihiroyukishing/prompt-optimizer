@@ -1,3 +1,5 @@
+import re
+
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -99,12 +101,322 @@ class Prompt(Base):
         """Check if the user actually used this prompt."""
         return self.final_prompt_used is not None
     
+    def _contains_placeholders(self, text: str) -> list:
+        """
+        Find all placeholder patterns in text.
+        
+        Looks for patterns like [something], [specific task], etc.
+        Returns list of placeholder strings found.
+        """
+        if not text:
+            return []
+        # Match patterns like [something], [specific task], [your task], etc.
+        pattern = r'\[[^\]]+\]'
+        placeholders = re.findall(pattern, text)
+        return placeholders
+    
+    def _text_similarity(self, text1: str, text2: str) -> float:
+        """
+        Calculate Levenshtein similarity between two texts (0-1 scale).
+        
+        Returns similarity score where 1.0 is identical, 0.0 is completely different.
+        """
+        if not text1 and not text2:
+            return 1.0
+        if not text1 or not text2:
+            return 0.0
+        
+        # Simple Levenshtein distance implementation
+        def levenshtein_distance(s1: str, s2: str) -> int:
+            if len(s1) < len(s2):
+                return levenshtein_distance(s2, s1)
+            
+            if len(s2) == 0:
+                return len(s1)
+            
+            previous_row = range(len(s2) + 1)
+            for i, c1 in enumerate(s1):
+                current_row = [i + 1]
+                for j, c2 in enumerate(s2):
+                    insertions = previous_row[j + 1] + 1
+                    deletions = current_row[j] + 1
+                    substitutions = previous_row[j] + (c1 != c2)
+                    current_row.append(min(insertions, deletions, substitutions))
+                previous_row = current_row
+            
+            return previous_row[-1]
+        
+        distance = levenshtein_distance(text1.lower(), text2.lower())
+        max_length = max(len(text1), len(text2))
+        if max_length == 0:
+            return 1.0
+        
+        similarity = 1.0 - (distance / max_length)
+        return similarity
+    
+    def _is_placeholder_filling(self) -> bool:
+        """
+        Check if the change is just placeholder filling (not a real modification).
+        
+        Returns True if the only difference is filling in placeholders.
+        """
+        optimized = self.optimized_prompt.strip()
+        final = self.final_prompt_used.strip()
+        
+        # Find placeholders in optimized prompt
+        placeholders = self._contains_placeholders(optimized)
+        if not placeholders:
+            return False  # No placeholders, so can't be placeholder filling
+        
+        # Split optimized text by placeholders (keeping the text segments)
+        parts = re.split(r'(\[[^\]]+\])', optimized)
+        text_segments = [part for part in parts if not part.startswith('[')]
+        
+        # Get non-empty segments only (skip empty segments)
+        non_empty_segments = [seg for seg in text_segments if seg.strip()]
+        
+        # Handle case where placeholder is at start (first segment is empty)
+        starts_with_placeholder = len(parts) > 0 and parts[0].startswith('[')
+        ends_with_placeholder = len(parts) > 0 and (parts[-1].startswith('[') or 
+                                                      (len(parts) >= 2 and parts[-2].startswith('[') and not parts[-1].strip()))
+        
+        # Check if all non-empty text segments appear in the final text in the same order
+        # This ensures the structure is preserved
+        current_pos = 0
+        all_segments_found = True
+        
+        for segment in non_empty_segments:
+            segment_lower = segment.lower().strip()
+            final_lower = final.lower()
+            
+            # For placeholder at start, the segment might have leading space
+            # Normalize by removing punctuation for more flexible matching
+            segment_normalized = re.sub(r'[^\w\s]', '', segment_lower)
+            final_normalized_seg = re.sub(r'[^\w\s]', '', final_lower[current_pos:])
+            
+            # Find segment starting from current position (normalized)
+            found_pos_normalized = final_normalized_seg.find(segment_normalized)
+            if found_pos_normalized == -1:
+                # Segment not found - might be a real modification
+                all_segments_found = False
+                break
+            # Update current_pos based on where we found it in the original text
+            # We need to find the position in the original final text
+            segment_words = segment_normalized.split()
+            if segment_words:
+                # Find the first word of the segment in final text
+                first_word = segment_words[0]
+                word_pos = final_lower.find(first_word, current_pos)
+                if word_pos != -1:
+                    current_pos = word_pos + len(segment_lower)
+                else:
+                    all_segments_found = False
+                    break
+            else:
+                current_pos += len(segment_lower)
+        
+        if not all_segments_found:
+            # If segments don't match but placeholder is at start, 
+            # we might still be able to match via text_after_placeholder check
+            # So don't return False immediately - let the starts_with_placeholder logic handle it
+            if not starts_with_placeholder:
+                return False  # Text segments don't match - real modification
+        
+        # Calculate word count difference
+        optimized_no_placeholders = optimized
+        for placeholder in placeholders:
+            optimized_no_placeholders = optimized_no_placeholders.replace(placeholder, "")
+        
+        # Normalize both texts (remove punctuation, lowercase)
+        optimized_normalized = re.sub(r'[^\w\s]', '', optimized_no_placeholders.lower())
+        final_normalized = re.sub(r'[^\w\s]', '', final.lower())
+        
+        optimized_words = optimized_normalized.split()
+        final_words = final_normalized.split()
+        
+        # Calculate how many words the placeholders were replaced with
+        placeholder_word_count = len(final_words) - len(optimized_words)
+        
+        # Improved logic: Split into two limits
+        # 1. Allow up to 10 words for placeholder filling
+        # 2. Allow up to 3 extra words after structure preservation (e.g., "please," "now")
+        # Anything more counts as a real modification
+        
+        if placeholder_word_count > 10:
+            return False  # Too many words for placeholder - real modification
+        
+        # For placeholder at start: check if text after placeholder matches
+        if starts_with_placeholder:
+            # Get text after first placeholder
+            if len(parts) > 2:
+                text_after_placeholder = parts[2].strip().lower()
+                if text_after_placeholder:
+                    # Normalize text_after_placeholder (remove punctuation for comparison)
+                    text_after_normalized = re.sub(r'[^\w\s]', '', text_after_placeholder)
+                    final_normalized_check = re.sub(r'[^\w\s]', '', final.lower())
+                    
+                    # Check if the normalized text after placeholder appears in final
+                    # (allowing for the placeholder text to be filled in between)
+                    if text_after_normalized in final_normalized_check:
+                        # Text after placeholder matches - check word count
+                        if placeholder_word_count <= 10 and placeholder_word_count >= 0:
+                            return True  # Placeholder filling
+                    else:
+                        return False  # Text after placeholder changed - real modification
+            # If no text after placeholder, just check word count and that segments matched
+            if placeholder_word_count <= 10 and placeholder_word_count >= 0:
+                return True  # Placeholder filling
+        
+        # For placeholder at end: check for extra content beyond placeholder filling
+        if ends_with_placeholder:
+            # Find the last non-empty segment
+            last_non_empty_segment = None
+            for seg in reversed(non_empty_segments):
+                if seg.strip():
+                    last_non_empty_segment = seg.strip().lower()
+                    break
+            
+            if last_non_empty_segment:
+                # Find where this segment ends in final text
+                last_segment_pos = final.lower().find(last_non_empty_segment)
+                if last_segment_pos != -1:
+                    last_segment_end = last_segment_pos + len(last_non_empty_segment)
+                    remaining_text = final.lower()[last_segment_end:].strip()
+                    
+                    if remaining_text:
+                        # Count words in remaining text (this is placeholder text + any extra)
+                        remaining_words = len(re.findall(r'\b\w+\b', remaining_text))
+                        
+                        # Check for common qualifier words that indicate extra content
+                        # Words like "but", "and", "also", "then", "now" often signal modifications
+                        qualifier_pattern = r'\b(but|and|also|then|now|plus|additionally|furthermore|moreover)\b'
+                        has_qualifier = bool(re.search(qualifier_pattern, remaining_text, re.IGNORECASE))
+                        
+                        # Logic: Allow up to 10 words for placeholder, plus 3 extra for structure preservation
+                        # If there's a qualifier word, it's likely extra content beyond placeholder
+                        if has_qualifier and remaining_words > 4:
+                            # Qualifier + more than 4 words = likely modification
+                            # (1 word placeholder + qualifier + 2+ words = modification)
+                            return False
+                        
+                        # If remaining_words > 10, it's likely extra content
+                        if remaining_words > 10:
+                            return False  # Too much - real modification
+                        
+                        # If 4-10 words and no qualifier, might be just placeholder text
+                        # If <= 3 words, likely just placeholder
+                        if remaining_words <= 3:
+                            return True  # Short placeholder text - placeholder filling
+                        elif remaining_words <= 10 and not has_qualifier:
+                            # Could be longer placeholder text, allow it
+                            return True
+                        else:
+                            # Has qualifier or too many words
+                            return False  # Extra content - real modification
+        
+        # Placeholder not at start or end, or in middle
+        # Check first word matches and word count is reasonable
+        if len(optimized_words) > 0 and len(final_words) > 0:
+            first_match = optimized_words[0] == final_words[0]
+            if first_match:
+                # Allow up to 10 words for placeholder, plus 3 extra for structure preservation
+                if placeholder_word_count <= 13:
+                    return True  # Structure preserved, just placeholder filling
+        
+        return False
+    
+    def _has_same_structure(self) -> bool:
+        """
+        Check if final_prompt_used has the same structure as optimized_prompt.
+        
+        Compares punctuation positions, sentence boundaries, and word order.
+        Returns True if structure is similar (suggesting placeholder filling).
+        """
+        optimized = self.optimized_prompt.strip()
+        final = self.final_prompt_used.strip()
+        
+        # Extract punctuation positions
+        optimized_punct_positions = [i for i, char in enumerate(optimized) if char in '.,!?;:']
+        final_punct_positions = [i for i, char in enumerate(final) if char in '.,!?;:']
+        
+        # If punctuation count differs significantly, structure changed
+        if abs(len(optimized_punct_positions) - len(final_punct_positions)) > 2:
+            return False
+        
+        # Extract sentence boundaries (periods, exclamation, question marks)
+        optimized_sentences = re.split(r'[.!?]+', optimized)
+        final_sentences = re.split(r'[.!?]+', final)
+        
+        # If sentence count differs, structure changed
+        if abs(len(optimized_sentences) - len(final_sentences)) > 1:
+            return False
+        
+        # Check word order similarity (excluding the changed section)
+        optimized_words = re.findall(r'\b\w+\b', optimized.lower())
+        final_words = re.findall(r'\b\w+\b', final.lower())
+        
+        # If word count differs significantly, structure changed
+        word_diff = abs(len(optimized_words) - len(final_words))
+        if word_diff > max(5, len(optimized_words) * 0.3):
+            return False
+        
+        # Check if first and last few words match (structure preserved)
+        if len(optimized_words) >= 2 and len(final_words) >= 2:
+            if optimized_words[:2] == final_words[:2] and optimized_words[-2:] == final_words[-2:]:
+                return True
+        
+        return False
+    
     def was_modified(self) -> bool:
-        """Check if the user modified the optimized prompt."""
+        """
+        Check if the user modified the optimized prompt.
+        
+        Distinguishes between:
+        - Placeholder filling (expected behavior, returns False)
+        - Real modifications (structural changes, returns True)
+        
+        Flow (as suggested by friend):
+        1. exact match
+        2. placeholder filling
+        3. same structure
+        4. high text similarity (fallback)
+        5. else = modified
+        """
         if not self.final_prompt_used or not self.optimized_prompt:
             return False
-        # If final_prompt_used is different from optimized_prompt, they modified it
-        return self.final_prompt_used.strip() != self.optimized_prompt.strip()
+        
+        optimized = self.optimized_prompt.strip()
+        final = self.final_prompt_used.strip()
+        
+        # 1. Fast path: exact match
+        if final == optimized:
+            return False
+        
+        # 2. Check for placeholder filling (most common case)
+        if self._is_placeholder_filling():
+            return False
+        
+        # 3. Check structure similarity (catches edge cases)
+        if self._has_same_structure():
+            return False
+        
+        # 4. High text similarity fallback (prevents false positives from punctuation/small rephrasing)
+        # Remove placeholders for similarity check
+        optimized_no_placeholders = optimized
+        placeholders = self._contains_placeholders(optimized)
+        for placeholder in placeholders:
+            optimized_no_placeholders = optimized_no_placeholders.replace(placeholder, "")
+        
+        # Normalize for similarity check (remove extra whitespace, lowercase)
+        optimized_normalized = re.sub(r'\s+', ' ', optimized_no_placeholders.lower().strip())
+        final_normalized = re.sub(r'\s+', ' ', final.lower().strip())
+        
+        similarity = self._text_similarity(optimized_normalized, final_normalized)
+        if similarity > 0.85:
+            return False  # High similarity - likely not modified (just punctuation/rephrasing)
+        
+        # 5. Otherwise, it's a real modification
+        return True
 
     def get_context_prompts_list(self) -> list:
         """Get context prompts as a Python list."""

@@ -5,6 +5,25 @@ console.log('🚀 PROMPT OPTIMIZER: Content script loaded!');
 console.log('🚀 PROMPT OPTIMIZER: Current URL:', window.location.href);
 console.log('🚀 PROMPT OPTIMIZER: Document ready state:', document.readyState);
 
+// Initialize state objects before they're used
+const domWatcherState = {
+  observer: null,
+  threadContainer: null,
+  currentConversationId: null,
+  capturedMessageIds: new Set(),
+  isWatching: false,
+  streamingResponses: new Map(),
+  failedRequests: [],
+  retryAttempts: new Map(),
+  retryIntervalId: null,
+  urlCheckIntervalId: null
+};
+
+const promptTrackingState = {
+  pendingPrompts: new Map(),
+  maxPendingAge: 30 * 60 * 1000
+};
+
 // Simple test - add a visible indicator
 function addTestIndicator() {
   // Remove any existing indicator
@@ -163,9 +182,12 @@ function optimizeCurrentPrompt() {
   // Optimize the prompt
   optimizePrompt(originalPrompt)
     .then(optimizedPrompt => {
+      // Store the optimized prompt for later reference
       if (textarea.dataset) {
         textarea.dataset.optimizedPrompt = optimizedPrompt;
       }
+      
+      // Note: window.promptOptimizerLastOptimizedPrompt is already set in callBackendOptimize
 
       // Replace the textarea content
       if (textarea.tagName === 'TEXTAREA') {
@@ -271,41 +293,19 @@ function showNotification(message, type = 'info') {
 }
 
 /**
- * Optimizes a given prompt using a free AI model
+ * Optimizes a given prompt using our backend API
  * @param {string} prompt - The original prompt to optimize
  * @returns {Promise<string>} - The optimized prompt
  */
 async function optimizePrompt(prompt) {
-  // System prompt for optimization
-  const SYSTEM_PROMPT = `You are a prompt optimization expert. Your ONLY job is to rewrite user prompts to make them more effective for AI language models.
-
-CRITICAL INSTRUCTIONS:
-- You are NOT answering the user's prompt
-- You are NOT providing solutions to their questions
-- You are ONLY rewriting their prompt to be better
-- Return ONLY the improved version of their prompt
-- Do NOT add explanations, commentary, or meta-text
-
-When optimizing, make the prompt:
-1. More specific and detailed
-2. Better structured and organized
-3. Clearer about what response is needed
-4. More likely to get high-quality AI responses
-
-Example:
-User prompt: "help me write code"
-Optimized: "Please help me write clean, well-documented code. I need assistance with [specific programming language/task]. Please include comments explaining the logic and best practices. The code should be production-ready and follow industry standards."
-
-Remember: You are optimizing the prompt, not answering it!`;
-
   try {
-    // Try Groq first (free tier, very fast)
-    console.log('🚀 PROMPT OPTIMIZER: Calling Groq API...');
-    const result = await callGroqAPI(prompt, SYSTEM_PROMPT);
-    console.log('🚀 PROMPT OPTIMIZER: Groq API success:', result);
+    // Call our backend optimization endpoint
+    console.log('🚀 PROMPT OPTIMIZER: Calling backend optimization API...');
+    const result = await callBackendOptimize(prompt);
+    console.log('🚀 PROMPT OPTIMIZER: Backend API success:', result);
     return result;
   } catch (error) {
-    console.error('🚀 PROMPT OPTIMIZER: Groq API failed, trying fallback:', error);
+    console.error('🚀 PROMPT OPTIMIZER: Backend API failed, trying fallback:', error);
 
     // Fallback to local optimization if API fails
     console.log('🚀 PROMPT OPTIMIZER: Using local optimization fallback');
@@ -314,32 +314,25 @@ Remember: You are optimizing the prompt, not answering it!`;
 }
 
 /**
- * Call Groq API for optimization
+ * Call our backend optimization endpoint
  */
-async function callGroqAPI(prompt, systemPrompt) {
-  const API_KEY = 'YOUR_GROQ_API_KEY_HERE'; // Replace with your Groq API key
-  const API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+async function callBackendOptimize(prompt) {
+  const BACKEND_URL = 'http://localhost:8000/api/v1/optimize';
+  const sessionId = getSessionId();
 
-  console.log('🚀 PROMPT OPTIMIZER: Making API request to Groq...');
-  console.log('🚀 PROMPT OPTIMIZER: API Key length:', API_KEY.length);
+  console.log('🚀 PROMPT OPTIMIZER: Making API request to backend...');
+  console.log('🚀 PROMPT OPTIMIZER: Session ID:', sessionId);
+  console.log('🚀 PROMPT OPTIMIZER: Prompt length:', prompt.length);
 
-  const response = await fetch(API_URL, {
+  // Encode prompt for URL
+  const encodedPrompt = encodeURIComponent(prompt);
+  const url = `${BACKEND_URL}?prompt=${encodedPrompt}&session_id=${encodeURIComponent(sessionId)}`;
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${API_KEY}`,
       'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.1-70b-versatile',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Please optimize this prompt: "${prompt}"` }
-      ],
-      max_tokens: 800,
-      temperature: 0.3,
-      top_p: 0.9,
-      stop: ["User prompt:", "Optimized:", "Remember:"]
-    })
+    }
   });
 
   console.log('🚀 PROMPT OPTIMIZER: API response status:', response.status);
@@ -347,37 +340,45 @@ async function callGroqAPI(prompt, systemPrompt) {
   if (!response.ok) {
     const errorText = await response.text();
     console.error('🚀 PROMPT OPTIMIZER: API error response:', errorText);
-    throw new Error(`Groq API request failed: ${response.status} - ${errorText}`);
+    
+    let errorMessage = `Backend API request failed: ${response.status}`;
+    try {
+      const errorData = JSON.parse(errorText);
+      errorMessage = errorData.detail || errorMessage;
+    } catch (e) {
+      errorMessage = `${errorMessage} - ${errorText}`;
+    }
+    
+    throw new Error(errorMessage);
   }
 
   const data = await response.json();
   console.log('🚀 PROMPT OPTIMIZER: API response data:', data);
 
-  let optimizedPrompt = data.choices[0].message.content.trim();
+  // Extract optimized_prompt from backend response
+  const optimizedPrompt = data.optimized_prompt;
 
-  // Clean up the response to ensure it's just the optimized prompt
-  // Remove any meta-commentary or explanations
-  const lines = optimizedPrompt.split('\n');
-  const cleanedLines = lines.filter(line => {
-    const trimmed = line.trim();
-    return !trimmed.startsWith('User prompt:') &&
-           !trimmed.startsWith('Optimized:') &&
-           !trimmed.startsWith('Remember:') &&
-           !trimmed.startsWith('Here') &&
-           !trimmed.startsWith('The optimized') &&
-           trimmed.length > 0;
-  });
-
-  optimizedPrompt = cleanedLines.join('\n').trim();
-
-  // If the response seems to be answering the prompt instead of optimizing it,
-  // fall back to local optimization
-  if (optimizedPrompt.length < 10 || optimizedPrompt.includes('I can help') || optimizedPrompt.includes('I\'ll help')) {
-    console.log('🚀 PROMPT OPTIMIZER: Response seems to be answering instead of optimizing, using fallback');
-    return await localOptimization(prompt);
+  if (!optimizedPrompt || !optimizedPrompt.trim()) {
+    console.error('🚀 PROMPT OPTIMIZER: Empty optimized prompt in response');
+    throw new Error('Backend returned empty optimized prompt');
   }
 
-  return optimizedPrompt;
+  // Store the prompt_id for later use (when saving ChatGPT response)
+  // This will be used when the user submits the optimized prompt
+  if (data.prompt_id) {
+    window.promptOptimizerLastPromptId = data.prompt_id;
+    window.promptOptimizerLastOptimizedPrompt = optimizedPrompt;
+    console.log('🚀 PROMPT OPTIMIZER: Stored prompt_id for later use:', data.prompt_id);
+  }
+
+  console.log('🚀 PROMPT OPTIMIZER: Optimization successful', {
+    original_length: prompt.length,
+    optimized_length: optimizedPrompt.length,
+    context_used: data.context_used,
+    similar_prompts_count: data.similar_prompts_count
+  });
+
+  return optimizedPrompt.trim();
 }
 
 /**
@@ -506,19 +507,6 @@ function createJSONFromPrompt(prompt) {
   // Convert to formatted JSON string
   return JSON.stringify(jsonPrompt, null, 2);
 }
-
-const domWatcherState = {
-  observer: null,
-  threadContainer: null,
-  currentConversationId: null,
-  capturedMessageIds: new Set(),
-  isWatching: false,
-  streamingResponses: new Map(),
-  failedRequests: [],
-  retryAttempts: new Map(),
-  retryIntervalId: null,
-  urlCheckIntervalId: null
-};
 
 function getConversationId() {
   const pathname = window.location.pathname;
@@ -1110,11 +1098,6 @@ function handleConversationChange() {
   }
 }
 
-const promptTrackingState = {
-  pendingPrompts: new Map(),
-  maxPendingAge: 30 * 60 * 1000
-};
-
 function initializePromptTracking() {
   console.log('📝 PROMPT TRACKER: Initializing...');
 
@@ -1217,7 +1200,21 @@ function capturePrompt(textarea) {
     return;
   }
 
-  const promptId = generatePromptId();
+  // Check if we have a prompt_id from a recent backend optimization
+  let promptId = null;
+  if (window.promptOptimizerLastPromptId && 
+      window.promptOptimizerLastOptimizedPrompt === promptText.trim()) {
+    // Use the backend prompt_id if this is the optimized prompt we just got
+    promptId = window.promptOptimizerLastPromptId;
+    console.log('📝 PROMPT TRACKER: Using backend prompt_id:', promptId);
+    // Clear it so we don't reuse it
+    window.promptOptimizerLastPromptId = null;
+    window.promptOptimizerLastOptimizedPrompt = null;
+  } else {
+    // Generate new prompt_id for prompts that weren't optimized via backend
+    promptId = generatePromptId();
+  }
+  
   const timestamp = Date.now();
   const sessionId = getSessionId();
 
