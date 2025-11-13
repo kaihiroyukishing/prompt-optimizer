@@ -8,7 +8,6 @@ import sqlite3
 import json
 from pathlib import Path
 
-# Database path
 db_path = Path("prompt_optimizer.db")
 
 if not db_path.exists():
@@ -18,11 +17,9 @@ if not db_path.exists():
 
 print(f"✅ Database found: {db_path.absolute()}\n")
 
-# Connect to database
 conn = sqlite3.connect(str(db_path))
 cursor = conn.cursor()
 
-# Check prompts table
 print("=" * 80)
 print("PROMPTS TABLE")
 print("=" * 80)
@@ -32,10 +29,11 @@ prompt_count = cursor.fetchone()[0]
 print(f"Total prompts: {prompt_count}\n")
 
 if prompt_count > 0:
-    # Get all prompts
     cursor.execute("""
         SELECT id, session_id, original_prompt, optimized_prompt, 
-               created_at, context_prompts, chatgpt_quality_score
+               created_at, context_prompts, chatgpt_quality_score,
+               optimization_method, optimization_time_ms, tokens_used,
+               embedding IS NOT NULL as has_embedding
         FROM prompts 
         ORDER BY created_at DESC 
         LIMIT 10
@@ -43,33 +41,38 @@ if prompt_count > 0:
     
     prompts = cursor.fetchall()
     
-    for i, (pid, sid, original, optimized, created, context_prompts, quality) in enumerate(prompts, 1):
+    for i, (pid, sid, original, optimized, created, context_prompts, quality, 
+            opt_method, opt_time, tokens, has_embedding) in enumerate(prompts, 1):
         print(f"\n--- Prompt #{i} (ID: {pid}) ---")
         print(f"Session: {sid}")
         print(f"Created: {created}")
-        print(f"Quality Score: {quality if quality else 'N/A'}")
-        print(f"\nOriginal:")
-        print(f"  {original[:100]}{'...' if len(original) > 100 else ''}")
-        print(f"\nOptimized:")
+        print(f"Method: {opt_method or 'N/A'}")
+        if opt_time:
+            print(f"Optimization Time: {opt_time}ms")
+        if tokens:
+            print(f"Tokens Used: {tokens}")
+        print(f"Has Embedding: {'✅' if has_embedding else '❌'}")
+        print(f"\nOriginal ({len(original)} chars):")
+        print(f"  {original[:150]}{'...' if len(original) > 150 else ''}")
+        print(f"\nOptimized ({len(optimized) if optimized else 0} chars):")
         if optimized:
-            print(f"  {optimized[:100]}{'...' if len(optimized) > 100 else ''}")
+            print(f"  {optimized[:150]}{'...' if len(optimized) > 150 else ''}")
         else:
             print("  (None)")
         
-        # Parse context_prompts
         if context_prompts:
             try:
                 context_ids = json.loads(context_prompts)
-                print(f"\nContext Prompts Used: {len(context_ids)} similar prompts")
-                print(f"  IDs: {context_ids}")
+                print(f"\nContext: {len(context_ids)} similar prompt(s) used")
+                if len(context_ids) > 0:
+                    print(f"  Similar prompt IDs: {context_ids}")
             except:
-                print(f"\nContext Prompts: {context_prompts}")
+                print(f"\nContext: {context_prompts}")
         else:
-            print(f"\nContext Prompts Used: 0 (no similar prompts found)")
+            print(f"\nContext: 0 similar prompts (new/unique prompt)")
 else:
     print("No prompts found in database.")
 
-# Check sessions table
 print("\n" + "=" * 80)
 print("SESSIONS TABLE")
 print("=" * 80)
@@ -94,21 +97,46 @@ if session_count > 0:
         print(f"Preferred Style: {style if style else 'None'}")
         print(f"Feedback Patterns: {patterns if patterns else 'None'}")
         
-        # Count prompts for this session
         cursor.execute("SELECT COUNT(*) FROM prompts WHERE session_id = ?", (sid,))
         prompt_count = cursor.fetchone()[0]
         print(f"Prompts in this session: {prompt_count}")
 else:
     print("No sessions found in database.")
 
-# Check for embeddings
 print("\n" + "=" * 80)
-print("EMBEDDINGS")
+print("EMBEDDINGS & STATISTICS")
 print("=" * 80)
 
 cursor.execute("SELECT COUNT(*) FROM prompts WHERE embedding IS NOT NULL")
 embedding_count = cursor.fetchone()[0]
 print(f"Prompts with embeddings: {embedding_count} / {prompt_count}")
+
+cursor.execute("SELECT COUNT(*) FROM cache_entries")
+cache_count = cursor.fetchone()[0]
+print(f"Cache entries: {cache_count}")
+
+if cache_count > 0:
+    cursor.execute("""
+        SELECT cache_type, COUNT(*) as count, SUM(hit_count) as total_hits
+        FROM cache_entries 
+        GROUP BY cache_type
+    """)
+    cache_stats = cursor.fetchall()
+    print("\nCache breakdown:")
+    for cache_type, count, hits in cache_stats:
+        print(f"  {cache_type or 'unknown'}: {count} entries, {hits or 0} total hits")
+
+cursor.execute("""
+    SELECT optimization_method, COUNT(*) as count
+    FROM prompts 
+    WHERE optimization_method IS NOT NULL
+    GROUP BY optimization_method
+""")
+method_stats = cursor.fetchall()
+if method_stats:
+    print("\nOptimization methods:")
+    for method, count in method_stats:
+        print(f"  {method}: {count} prompt(s)")
 
 conn.close()
 print("\n" + "=" * 80)

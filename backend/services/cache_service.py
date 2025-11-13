@@ -5,6 +5,7 @@ Caching for:
 - Embedding vectors
 """
 
+import base64
 import hashlib
 import json
 import logging
@@ -18,6 +19,14 @@ from backend.app.core.config import settings
 from backend.models.prompt import CacheEntry
 
 logger = logging.getLogger(__name__)
+
+try:
+    import cache_serialization as cpp_serial
+    CPP_SERIALIZATION_AVAILABLE = True
+except ImportError:
+    cpp_serial = None
+    CPP_SERIALIZATION_AVAILABLE = False
+    logger.info("C++ serialization module not available, using JSON fallback")
 
 
 def normalize_prompt(prompt: str) -> str:
@@ -188,11 +197,35 @@ def get_embedding_cache(prompt: str, db: Session) -> Optional[List[float]]:
         cache_entry.increment_hit_count()
         db.commit()
         
-        cached_data = json.loads(cache_entry.cache_value)
-        logger.debug(f"Cache hit for embedding: {cache_key}")
-        return cached_data if isinstance(cached_data, list) else cached_data.get("embedding", [])
+        cache_value = cache_entry.cache_value
+        
+        if cache_value.startswith('['):
+            cached_data = json.loads(cache_value)
+            logger.debug(f"Cache hit for embedding (JSON): {cache_key}")
+            return cached_data if isinstance(cached_data, list) else cached_data.get("embedding", [])
+        else:
+            if CPP_SERIALIZATION_AVAILABLE and cpp_serial is not None:
+                try:
+                    binary_data = base64.b64decode(cache_value)
+                    embedding = cpp_serial.deserialize_embedding(binary_data)
+                    logger.debug(f"Cache hit for embedding (C++ deserialized): {cache_key}")
+                    return embedding
+                except Exception as e:
+                    logger.warning(f"C++ deserialization failed, trying JSON fallback: {e}")
+                    try:
+                        cached_data = json.loads(cache_value)
+                        return cached_data if isinstance(cached_data, list) else cached_data.get("embedding", [])
+                    except json.JSONDecodeError:
+                        raise ValueError(f"Unable to deserialize cache value: {e}")
+            else:
+                try:
+                    cached_data = json.loads(cache_value)
+                    logger.debug(f"Cache hit for embedding (JSON fallback): {cache_key}")
+                    return cached_data if isinstance(cached_data, list) else cached_data.get("embedding", [])
+                except json.JSONDecodeError:
+                    raise ValueError("Cache value is in binary format but C++ module is not available")
     
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, ValueError) as e:
         logger.warning(f"Corrupted cache value for embedding: {cache_key}, error: {e}")
         return None
     except SQLAlchemyError as e:
@@ -330,7 +363,17 @@ def set_embedding_cache(prompt: str, embedding: List[float], db: Session) -> Non
             CacheEntry.cache_type == "embedding"
         ).first()
         
-        cache_value = json.dumps(embedding)
+        cache_value = None
+        if CPP_SERIALIZATION_AVAILABLE and cpp_serial is not None:
+            try:
+                binary_data = cpp_serial.serialize_embedding(embedding)
+                cache_value = base64.b64encode(binary_data).decode('utf-8')
+                logger.debug(f"Using C++ serialization for embedding cache")
+            except Exception as e:
+                logger.warning(f"C++ serialization failed, using JSON fallback: {e}")
+        
+        if cache_value is None:
+            cache_value = json.dumps(embedding)
         
         if cache_entry:
             cache_entry.cache_value = cache_value
